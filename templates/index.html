@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crop Predictor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1a0f;
+    color: #e8f5e8;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #162416;
+    border-bottom: 1px solid #2d4a2d;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header .logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #4caf50, #81c784);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+
+  header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #c8e6c9;
+    letter-spacing: 0.3px;
+  }
+
+  header span {
+    font-size: 13px;
+    color: #66bb6a;
+    margin-left: 4px;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 24px;
+  }
+
+  /* ── Left panel ── */
+  .panel {
+    background: #162416;
+    border: 1px solid #2d4a2d;
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .panel h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #81c784;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 20px;
+  }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: #a5d6a7;
+    font-weight: 500;
+    margin-bottom: 6px;
+    margin-top: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  label:first-of-type { margin-top: 0; }
+
+  input {
+    width: 100%;
+    background: #0f1a0f;
+    border: 1px solid #2d4a2d;
+    border-radius: 7px;
+    color: #e8f5e8;
+    font-size: 15px;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input:focus { border-color: #4caf50; }
+
+  input::placeholder { color: #4a6b4a; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .hint {
+    font-size: 11px;
+    color: #4a6b4a;
+    margin-top: 4px;
+  }
+
+  button#predictBtn {
+    width: 100%;
+    margin-top: 24px;
+    padding: 13px;
+    background: linear-gradient(135deg, #388e3c, #4caf50);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    letter-spacing: 0.3px;
+  }
+
+  button#predictBtn:hover  { opacity: 0.9; }
+  button#predictBtn:active { transform: scale(0.98); }
+  button#predictBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .example-btns {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .example-btns button {
+    background: #1e341e;
+    border: 1px solid #2d4a2d;
+    border-radius: 6px;
+    color: #81c784;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .example-btns button:hover { background: #2d4a2d; }
+
+  /* ── Right panel ── */
+  .results { display: flex; flex-direction: column; gap: 16px; }
+
+  .placeholder {
+    background: #162416;
+    border: 1px dashed #2d4a2d;
+    border-radius: 12px;
+    padding: 60px 24px;
+    text-align: center;
+    color: #4a6b4a;
+    font-size: 15px;
+  }
+
+  .placeholder .icon { font-size: 40px; margin-bottom: 12px; }
+
+  /* prediction card */
+  .pred-card {
+    background: #162416;
+    border: 1px solid #2d4a2d;
+    border-radius: 12px;
+    padding: 24px;
+    display: none;
+  }
+
+  .pred-card.show { display: block; }
+
+  .pred-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .crop-name {
+    font-size: 32px;
+    font-weight: 700;
+    color: #81c784;
+    line-height: 1;
+  }
+
+  .confidence-badge {
+    background: #1b3a1b;
+    border: 1px solid #2d4a2d;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #66bb6a;
+    font-weight: 600;
+  }
+
+  .correct-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+
+  .correct-badge.yes { background: #1b3a1b; color: #66bb6a; }
+  .correct-badge.no  { background: #3a1b1b; color: #e57373; }
+
+  /* lifecycle timeline */
+  .lifecycle {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 20px 0;
+    position: relative;
+  }
+
+  .lc-step {
+    flex: 1;
+    text-align: center;
+    position: relative;
+  }
+
+  .lc-step .dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    margin: 0 auto 6px;
+    position: relative;
+    z-index: 2;
+  }
+
+  .lc-step.sow   .dot { background: #42a5f5; }
+  .lc-step.peak  .dot { background: #66bb6a; }
+  .lc-step.harv  .dot { background: #ffa726; }
+
+  .lc-step .lc-label { font-size: 10px; color: #a5d6a7; font-weight: 600; text-transform: uppercase; }
+  .lc-step .lc-date  { font-size: 13px; color: #e8f5e8; margin-top: 2px; }
+
+  .lc-line {
+    flex: 1;
+    height: 2px;
+    background: linear-gradient(to right, #42a5f5, #66bb6a);
+    margin-bottom: 28px;
+  }
+
+  .lc-line.right {
+    background: linear-gradient(to right, #66bb6a, #ffa726);
+  }
+
+  /* top 3 */
+  .top3 { margin-top: 16px; }
+  .top3 h3 { font-size: 12px; color: #66bb6a; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+
+  .top3-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .top3-crop { width: 80px; font-size: 13px; color: #c8e6c9; }
+
+  .top3-bar-bg {
+    flex: 1;
+    background: #1e341e;
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+  }
+
+  .top3-bar { height: 8px; border-radius: 4px; background: #4caf50; transition: width 0.6s; }
+
+  .top3-pct { width: 42px; text-align: right; font-size: 12px; color: #81c784; }
+
+  /* chart */
+  .chart-card {
+    background: #162416;
+    border: 1px solid #2d4a2d;
+    border-radius: 12px;
+    padding: 24px;
+    display: none;
+  }
+
+  .chart-card.show { display: block; }
+  .chart-card h3 { font-size: 13px; color: #81c784; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
+
+  /* error */
+  .error-card {
+    background: #2a1010;
+    border: 1px solid #6a2020;
+    border-radius: 12px;
+    padding: 20px 24px;
+    color: #ef9a9a;
+    display: none;
+  }
+
+  .error-card.show { display: block; }
+
+  /* spinner */
+  .spinner {
+    display: none;
+    width: 22px; height: 22px;
+    border: 3px solid #2d4a2d;
+    border-top-color: #4caf50;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🌾</div>
+  <h1>Crop Predictor</h1>
+</header>
+
+<div class="container">
+
+  <!-- Left: Input panel -->
+  <div class="panel">
+    <h2>Predict Crop</h2>
+
+    <!-- <label>Latitude</label>
+    <input id="lat" type="number" step="any" placeholder="e.g. 13.5693" />
+
+    <label>Longitude</label>
+    <input id="lon" type="number" step="any" placeholder="e.g. 78.4556" /> -->
+    <label>Coordinates (lat, lon)</label>
+    <input id="coords" type="text" placeholder="e.g. 13.5693, 78.4556" />
+
+    <label>Ground Truth Date</label>
+    <input id="ref_date" type="date" />
+    <p class="hint">Date of field visit / observation</p>
+
+    <label>Ground Truth Crop <span style="color:#4a6b4a">(optional)</span></label>
+    <input id="ground_truth" type="text" placeholder="e.g. Tomato" />
+
+    <button id="predictBtn" onclick="runPredict()">Predict Crop</button>
+
+    <div class="example-btns">
+      <span style="font-size:11px;color:#4a6b4a;align-self:center">Try:</span>
+      <button onclick="fillExample('tomato')">Tomato</button>
+      <button onclick="fillExample('onion')">Onion</button>
+      <button onclick="fillExample('banana')">Banana</button>
+    </div>
+  </div>
+
+  <!-- Right: Results -->
+  <div class="results">
+
+    <div class="placeholder" id="placeholder">
+      <div class="icon">🛰️</div>
+      Enter coordinates and a date, then click Predict.<br>
+      <span style="font-size:13px">NDVI will be fetched live from Sentinel-2.</span>
+    </div>
+
+    <div class="error-card" id="errorCard">
+      <strong>⚠ Error</strong><br>
+      <span id="errorMsg"></span>
+    </div>
+
+    <div class="pred-card" id="predCard">
+      <div class="pred-header">
+        <div>
+          <div class="crop-name" id="cropName">—</div>
+          <div id="correctBadge"></div>
+        </div>
+        <div class="confidence-badge" id="confBadge">—%</div>
+      </div>
+
+      <!-- Lifecycle timeline -->
+      <div class="lifecycle">
+        <div class="lc-step sow">
+          <div class="dot"></div>
+          <div class="lc-label">Sowing</div>
+          <div class="lc-date" id="sowDate">—</div>
+        </div>
+        <div class="lc-line"></div>
+        <div class="lc-step peak">
+          <div class="dot"></div>
+          <div class="lc-label">Peak</div>
+          <div class="lc-date" id="peakDate">—</div>
+        </div>
+        <div class="lc-line right"></div>
+        <div class="lc-step harv">
+          <div class="dot"></div>
+          <div class="lc-label">Harvest</div>
+          <div class="lc-date" id="harvDate">—</div>
+        </div>
+      </div>
+
+      <!-- Top 3 -->
+      <div class="top3">
+        <h3>Top Predictions</h3>
+        <div id="top3Rows"></div>
+      </div>
+    </div>
+
+    <!-- NDVI chart -->
+    <div class="chart-card" id="chartCard">
+      <h3>NDVI Time Series</h3>
+      <canvas id="ndviChart" height="120"></canvas>
+    </div>
+
+    <!-- Spinner -->
+    <div class="spinner" id="spinner"></div>
+
+  </div>
+</div>
+
+<script>
+let ndviChart = null;
+
+const examples = {
+  tomato: { lat: 13.5693, lon: 78.4556, date: '2022-10-06', gt: 'Tomato' },
+  onion:  { lat: 19.2386, lon: 73.9600, date: '2023-11-15', gt: 'Onion' },
+  banana: { lat: 21.2182, lon: 76.0479, date: '2023-06-01', gt: 'Banana' },
+};
+
+// function fillExample(crop) {
+//   const e = examples[crop];
+//   document.getElementById('lat').value       = e.lat;
+//   document.getElementById('lon').value       = e.lon;
+//   document.getElementById('ref_date').value  = e.date;
+//   document.getElementById('ground_truth').value = e.gt;
+// }
+function fillExample(crop) {
+  const e = examples[crop];
+  document.getElementById('coords').value = e.lat + ', ' + e.lon;
+  document.getElementById('ref_date').value = e.date;
+  document.getElementById('ground_truth').value = e.gt;
+}
+
+async function runPredict() {
+const coordsRaw = document.getElementById('coords').value.trim();
+const parts = coordsRaw.split(',').map(s => parseFloat(s.trim()));
+if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+  alert('Please enter coordinates as: lat, lon  (e.g. 13.5693, 78.4556)');
+  return;
+}
+const lat = parts[0];
+const lon = parts[1];
+  const date = document.getElementById('ref_date').value;
+  const gt   = document.getElementById('ground_truth').value.trim();
+
+  if (!coordsRaw || isNaN(lat) || isNaN(lon) || !date) {
+    alert('Please fill in Latitude, Longitude, and Date.');
+    return;
+  }
+
+  // Show spinner, hide results
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('predCard').classList.remove('show');
+  document.getElementById('chartCard').classList.remove('show');
+  document.getElementById('errorCard').classList.remove('show');
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('predictBtn').disabled = true;
+
+  try {
+    const res = await fetch('/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, ref_date: date, ground_truth: gt || null })
+    });
+    const data = await res.json();
+
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('predictBtn').disabled = false;
+
+    if (data.error) {
+      document.getElementById('errorMsg').textContent = data.error;
+      document.getElementById('errorCard').classList.add('show');
+      return;
+    }
+
+    // Fill prediction card
+    document.getElementById('cropName').textContent = data.predicted_crop;
+    document.getElementById('confBadge').textContent = data.confidence_pct + '%';
+    document.getElementById('sowDate').textContent   = data.sowing_date;
+    document.getElementById('peakDate').textContent  = data.peak_date;
+    document.getElementById('harvDate').textContent  = data.harvest_date;
+
+    // Correct badge
+    const badge = document.getElementById('correctBadge');
+    if (data.ground_truth) {
+      badge.innerHTML = data.correct
+        ? `<span class="correct-badge yes">✓ Correct (${data.ground_truth})</span>`
+        : `<span class="correct-badge no">✗ Expected: ${data.ground_truth}</span>`;
+    } else {
+      badge.innerHTML = '';
+    }
+
+    // Top 3
+    const top3Container = document.getElementById('top3Rows');
+    top3Container.innerHTML = '';
+    data.top3.forEach(t => {
+      top3Container.innerHTML += `
+        <div class="top3-row">
+          <div class="top3-crop">${t.crop}</div>
+          <div class="top3-bar-bg"><div class="top3-bar" style="width:${t.confidence}%"></div></div>
+          <div class="top3-pct">${t.confidence}%</div>
+        </div>`;
+    });
+
+    document.getElementById('predCard').classList.add('show');
+
+    // NDVI chart
+    const dates  = data.ndvi_dates;
+    const values = data.ndvi_values;
+    const smooth = data.smoothed;
+
+    // Mark lifecycle events on chart
+    const sowIdx  = dates.indexOf(data.sowing_date);
+    const peakIdx = dates.indexOf(data.peak_date);
+    const harvIdx = dates.indexOf(data.harvest_date);
+
+    const pointColors = values.map((_, i) => {
+      if (i === sowIdx)  return '#42a5f5';
+      if (i === peakIdx) return '#66bb6a';
+      if (i === harvIdx) return '#ffa726';
+      return 'transparent';
+    });
+
+    const pointRadii = values.map((_, i) =>
+      [sowIdx, peakIdx, harvIdx].includes(i) ? 7 : 0
+    );
+
+    if (ndviChart) ndviChart.destroy();
+    const ctx = document.getElementById('ndviChart').getContext('2d');
+    ndviChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [
+          {
+            label: 'Raw NDVI',
+            data: values,
+            borderColor: '#2d4a2d',
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            pointRadius: pointRadii,
+            pointBackgroundColor: pointColors,
+            pointBorderColor: pointColors,
+            tension: 0.3,
+          },
+          {
+            label: 'Smoothed',
+            data: smooth,
+            borderColor: '#4caf50',
+            backgroundColor: 'rgba(76,175,80,0.08)',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.4,
+            fill: true,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            labels: { color: '#a5d6a7', font: { size: 12 } }
+          },
+          tooltip: {
+            callbacks: {
+              afterLabel: (ctx) => {
+                const i = ctx.dataIndex;
+                if (i === sowIdx)  return '🌱 Sowing';
+                if (i === peakIdx) return '📈 Peak';
+                if (i === harvIdx) return '🌾 Harvest';
+                return '';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#4a6b4a', maxTicksLimit: 10, font: { size: 11 } },
+            grid:  { color: '#1e341e' }
+          },
+          y: {
+            min: 0, max: 1,
+            ticks: { color: '#4a6b4a', font: { size: 11 } },
+            grid:  { color: '#1e341e' }
+          }
+        }
+      }
+    });
+
+    document.getElementById('chartCard').classList.add('show');
+
+  } catch (err) {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('predictBtn').disabled = false;
+    document.getElementById('errorMsg').textContent = 'Network error: ' + err.message;
+    document.getElementById('errorCard').classList.add('show');
+  }
+}
+
+// Allow Enter key
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') runPredict();
+});
+</script>
+</body>
+</html>
