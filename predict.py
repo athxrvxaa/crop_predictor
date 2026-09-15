@@ -146,8 +146,8 @@ def predict_crop(lat: float, lon: float, ref_date: str,
         'ndvi_dates':  [str(d.date()) for d in ndvi_df['Date']],
         'ndvi_values': [round(float(v), 4) for v in ndvi],
         'smoothed':    [round(float(v), 4) if not np.isnan(v) else None
-                        for v in pd.Series(ndvi).rolling(GENERIC_CFG['smooth'],
-                                                         center=True, min_periods=1).mean()],
+                for v in pd.Series(ndvi).rolling(GENERIC_CFG['smooth'],
+                                 center=True, min_periods=1).mean()],
         'ref_date_inside_cycle': bool(
             pd.Timestamp(sow_date) <= ref_date <= pd.Timestamp(harv_date)
         ),

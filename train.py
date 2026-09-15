@@ -34,7 +34,11 @@ from sklearn.metrics import confusion_matrix
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import (
+    GridSearchCV,
+    StratifiedGroupKFold,
+    StratifiedShuffleSplit,
+)
 
 from pipeline import (
     CROP_CONFIG,
@@ -547,8 +551,8 @@ crops_arr = farm_crop["Crop"].values
 
 sss1 = StratifiedShuffleSplit(
     n_splits=1,
-    test_size=0.30,
-    random_state=42,
+    test_size=0.50,
+    # random_state=42,
 )
 
 train_idx, test_idx = next(
@@ -605,18 +609,46 @@ y_test = test_df["Crop"].values
 
 print("\nTraining Random Forest...")
 
-clf = RandomForestClassifier(
-
-    n_estimators=200,
+rf = RandomForestClassifier(
     class_weight="balanced",
     random_state=42,
-
+    n_jobs=1,
 )
 
-clf.fit(
+param_grid = {
+    "n_estimators": [120, 150, 200],
+    "max_depth": [2, 3, 8],
+    "min_samples_split": [3, 5, 10],
+    "min_samples_leaf": [1, 2, 4],
+    "max_features": ["sqrt"],
+    "ccp_alpha": [0.01, 0.02],
+}
+
+cv = StratifiedGroupKFold(
+    n_splits=3,
+    shuffle=True,
+    random_state=42,
+)
+
+grid_search = GridSearchCV(
+    estimator=rf,
+    param_grid=param_grid,
+    scoring="f1_macro",
+    cv=cv,
+    n_jobs=1,
+    refit=True,
+    verbose=1,
+)
+
+grid_search.fit(
     X_train,
     y_train,
+    groups=train_df["Farm"].values,
 )
+
+clf = grid_search.best_estimator_
+print(f"Best parameters: {grid_search.best_params_}")
+print(f"Best CV F1 score: {grid_search.best_score_:.4f}")
 
 print("\n========== TEST ==========")
 
@@ -631,23 +663,23 @@ else:
         zero_division=0
     ))
 
-print("\n========== TRAIN ==========")
+# print("\n========== TRAIN ==========")
 
-train_pred = clf.predict(X_train)
+# train_pred = clf.predict(X_train)
 
-print(classification_report(
-    y_train,
-    train_pred,
-    zero_division=0
-))
+# print(classification_report(
+#     y_train,
+#     train_pred,
+#     zero_division=0
+# ))
 
-if len(y_test) == 0:
-    print("\nNo test samples available for confusion matrix")
-else:
-    cm = confusion_matrix(y_test, y_pred)
+# if len(y_test) == 0:
+#     print("\nNo test samples available for confusion matrix")
+# else:
+#     cm = confusion_matrix(y_test, y_pred)
 
-    print("\nConfusion Matrix")
-    print(cm)
+#     print("\nConfusion Matrix")
+#     print(cm)
 
 model_dir = os.path.join(os.path.dirname(__file__), "model")
 os.makedirs(model_dir, exist_ok=True)
