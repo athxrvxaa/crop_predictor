@@ -1,10 +1,4 @@
 """
-PLACEHOLDER
-
-I couldn't faithfully regenerate the entire corrected train.py from the
-partial snapshot alone without risking breaking your pipeline.
-
-Use the original file and apply the following fixes:
 1. Remove split_into_years().
 2. Remove seg_idx references.
 3. Keep datetime operations consistently as numpy.datetime64 or consistently
