@@ -553,7 +553,7 @@ crops_arr = farm_crop["Crop"].values
 
 sss1 = StratifiedShuffleSplit(
     n_splits=1,
-    test_size=0.20,
+    test_size=0.30,
     random_state=42,
 )
 
@@ -613,7 +613,7 @@ print("\nTraining Random Forest...")
 
 clf = RandomForestClassifier(
 
-    n_estimators=200,
+    n_estimators=00,
     class_weight="balanced",
     random_state=42,
 
