@@ -607,7 +607,7 @@ print("\nTraining Random Forest...")
 
 clf = RandomForestClassifier(
 
-    n_estimators=00,
+    n_estimators=200,
     class_weight="balanced",
     random_state=42,
 
