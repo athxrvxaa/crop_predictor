@@ -419,6 +419,43 @@
 <script>
 let ndviChart = null;
 
+const groundTruthPlugin = {
+  id: 'groundTruthPlugin',
+  afterDraw(chart) {
+    const options = chart.options.groundTruth || {};
+    if (options.index === undefined) return;
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    const x = xScale.getPixelForValue(options.index);
+    const ctx = chart.ctx;
+    const label = `Ground truth: ${options.date}`;
+    ctx.font = '600 12px Segoe UI';
+    const labelWidth = ctx.measureText(label).width + 16;
+    const labelX = Math.max(
+      chart.chartArea.left,
+      Math.min(x - labelWidth / 2, chart.chartArea.right - labelWidth)
+    );
+
+    ctx.save();
+    ctx.strokeStyle = '#ff3b30';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(x, chart.chartArea.top);
+    ctx.lineTo(x, chart.chartArea.bottom);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#ff3b30';
+    ctx.fillRect(labelX, chart.chartArea.top + 6, labelWidth, 24);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, labelX + labelWidth / 2, chart.chartArea.top + 18);
+    ctx.restore();
+  }
+};
+
 const examples = {
   tomato: { lat: 13.5693, lon: 78.4556, date: '2022-10-06', gt: 'Tomato' },
   onion:  { lat: 19.2386, lon: 73.9600, date: '2023-11-15', gt: 'Onion' },
@@ -693,6 +730,7 @@ const lon = parts[1];
     const ctx = document.getElementById('ndviChart').getContext('2d');
     ndviChart = new Chart(ctx, {
       type: 'line',
+      plugins: [groundTruthPlugin],
       data: {
         labels: chartDates,
         datasets: [
@@ -735,6 +773,10 @@ const lon = parts[1];
       },
       options: {
         responsive: true,
+        groundTruth: {
+          index: chartGtIdx,
+          date,
+        },
         plugins: {
           legend: {
             labels: { color: '#a5d6a7', font: { size: 12 } }
