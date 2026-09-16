@@ -27,15 +27,16 @@ def get_ndvi_timeseries(lat: float, lon: float,
     point = ee.Geometry.Point([lon, lat])
 
     def mask_and_ndvi(img):
-        scl  = img.select('SCL')
-        mask = scl.eq(4).Or(scl.eq(5)).Or(scl.eq(6)).Or(scl.eq(11))
+        scl = img.select('SCL')
+        valid_mask = scl.neq(3).And(scl.neq(8)).And(scl.neq(9)).And(scl.neq(10))
         ndvi = img.normalizedDifference(['B8', 'B4']).rename('NDVI')
-        return img.addBands(ndvi).updateMask(mask)
+        ndvi = ndvi.updateMask(valid_mask)
+        ndvi = ndvi.updateMask(ndvi.gte(0))
+        return img.addBands(ndvi)
 
     coll = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
             .filterBounds(point)
             .filterDate(start_date, end_date)
-            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_thresh))
             .map(mask_and_ndvi))
 
     def extract(img):
@@ -48,5 +49,8 @@ def get_ndvi_timeseries(lat: float, lon: float,
     ).get('list').getInfo()
 
     df = pd.DataFrame(data, columns=['Date', 'NDVI'])
+    if df.empty:
+        return df
     df['Date'] = pd.to_datetime(df['Date'])
-    return df.sort_values('Date').drop_duplicates(subset='Date').reset_index(drop=True)
+    df = df.sort_values('Date').groupby('Date', as_index=False).mean()
+    return df.reset_index(drop=True)

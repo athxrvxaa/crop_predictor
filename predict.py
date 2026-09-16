@@ -32,7 +32,7 @@ def load_model(path: str = 'model/crop_classifier.pkl'):
 
 
 def predict_crop(lat: float, lon: float, ref_date: str,
-                 window_months: int = 12,
+                 window_months: int = 18,
                  ground_truth: str = None,
                  gee_project: str = 'gee-project-497010'):
     clf, feature_cols = load_model()
@@ -46,26 +46,27 @@ def predict_crop(lat: float, lon: float, ref_date: str,
 
     dates  = pd.to_datetime(ndvi_df['Date'].values).values.astype('datetime64[ns]')
     ndvi   = ndvi_df['NDVI'].values
-
-    cycles, smoothed = detect_cycles(dates, ndvi, GENERIC_CFG)
-    if len(cycles) == 0:
-        return {'error': 'No lifecycle detected around this date'}
+    fallback_smoothed = detect_cycles(dates, ndvi, GENERIC_CFG)[1]
 
     valid_candidates = []
     for crop in clf.classes_:
         crop_cfg = CROP_CONFIG.get(crop, GENERIC_CFG)
+        candidate_cycles, crop_smoothed = detect_cycles(dates, ndvi, crop_cfg)
+        if not candidate_cycles:
+            continue
+
         cycle = find_valid_cycle_for_crop(
             crop,
             dates,
             ndvi,
             crop_cfg,
             ref_date=ref_date,
-            candidate_cycles=None,
+            candidate_cycles=candidate_cycles,
         )
         if cycle is None:
             continue
 
-        result = build_features_from_cycle(dates, ndvi, cycle)
+        result = build_features_from_cycle(dates, ndvi, crop_smoothed, cycle)
         if result is None:
             continue
 
@@ -74,7 +75,7 @@ def predict_crop(lat: float, lon: float, ref_date: str,
         if not validate_crop(crop, sow_date, peak_date, harv_date, cycle_segment):
             continue
 
-        valid_candidates.append((crop, cycle, feats, sow_date, peak_date, harv_date))
+        valid_candidates.append((crop, cycle, feats, sow_date, peak_date, harv_date, crop_smoothed, crop_cfg['smooth']))
 
     if not valid_candidates:
         return {
@@ -89,14 +90,13 @@ def predict_crop(lat: float, lon: float, ref_date: str,
             'harvest_date': None,
             'ndvi_dates': [str(d.date()) for d in ndvi_df['Date']],
             'ndvi_values': [round(float(v), 4) for v in ndvi],
-            'smoothed': [round(float(v), 4) if not np.isnan(v) else None
-                         for v in pd.Series(ndvi).rolling(GENERIC_CFG['smooth'],
-                                                          center=True, min_periods=1).mean()],
+            'smoothed': [round(float(v), 4) if not np.isnan(v) else None for v in fallback_smoothed],
+            'smooth_window': GENERIC_CFG['smooth'],
             'ref_date_inside_cycle': False,
         }
 
     crop_probabilities = {}
-    for crop, cycle, feats, sow_date, peak_date, harv_date in valid_candidates:
+    for crop, cycle, feats, sow_date, peak_date, harv_date, crop_smoothed, smooth_window in valid_candidates:
         X = pd.DataFrame([feats])[feature_cols].values
         probs = clf.predict_proba(X)[0]
         crop_idx = int(np.where(clf.classes_ == crop)[0][0])
@@ -116,9 +116,8 @@ def predict_crop(lat: float, lon: float, ref_date: str,
             'harvest_date': None,
             'ndvi_dates': [str(d.date()) for d in ndvi_df['Date']],
             'ndvi_values': [round(float(v), 4) for v in ndvi],
-            'smoothed': [round(float(v), 4) if not np.isnan(v) else None
-                         for v in pd.Series(ndvi).rolling(GENERIC_CFG['smooth'],
-                                                          center=True, min_periods=1).mean()],
+            'smoothed': [round(float(v), 4) if not np.isnan(v) else None for v in fallback_smoothed],
+            'smooth_window': GENERIC_CFG['smooth'],
             'ref_date_inside_cycle': False,
         }
 
@@ -127,7 +126,8 @@ def predict_crop(lat: float, lon: float, ref_date: str,
     top_crop, top_prob = ranked_crops[0]
 
     top_entry = next(entry for entry in valid_candidates if entry[0] == top_crop)
-    _, _, feats, sow_date, peak_date, harv_date = top_entry
+    top_cycle = top_entry[1]
+    _, _, feats, sow_date, peak_date, harv_date, crop_smoothed, smooth_window = top_entry
 
     output = {
         'lat': lat,
@@ -142,12 +142,13 @@ def predict_crop(lat: float, lon: float, ref_date: str,
         'sowing_date':   str(pd.Timestamp(sow_date).date()),
         'peak_date':     str(pd.Timestamp(peak_date).date()),
         'harvest_date':  str(pd.Timestamp(harv_date).date()),
-        # full NDVI series for chart
+        'sowing_idx':    int(top_cycle['sowing']),
+        'peak_idx':      int(top_cycle['peak']),
+        'harvest_idx':   int(top_cycle['harvest']),
         'ndvi_dates':  [str(d.date()) for d in ndvi_df['Date']],
         'ndvi_values': [round(float(v), 4) for v in ndvi],
-        'smoothed':    [round(float(v), 4) if not np.isnan(v) else None
-                for v in pd.Series(ndvi).rolling(GENERIC_CFG['smooth'],
-                                 center=True, min_periods=1).mean()],
+        'smoothed':    [round(float(v), 4) if not np.isnan(v) else None for v in crop_smoothed],
+        'smooth_window': smooth_window,
         'ref_date_inside_cycle': bool(
             pd.Timestamp(sow_date) <= ref_date <= pd.Timestamp(harv_date)
         ),

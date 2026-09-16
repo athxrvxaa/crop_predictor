@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Crop Predictor</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -286,6 +287,7 @@
 
   .chart-card.show { display: block; }
   .chart-card h3 { font-size: 13px; color: #81c784; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
+  .chart-card h3 span { color: #fdd835; font-size: 12px; font-weight: 500; margin-left: 8px; }
 
   /* error */
   .error-card {
@@ -404,7 +406,7 @@
 
     <!-- NDVI chart -->
     <div class="chart-card" id="chartCard">
-      <h3>NDVI Time Series</h3>
+      <h3>NDVI Time Series <span id="groundTruthDateLabel"></span></h3>
       <canvas id="ndviChart" height="120"></canvas>
     </div>
 
@@ -435,6 +437,121 @@ function fillExample(crop) {
   document.getElementById('coords').value = e.lat + ', ' + e.lon;
   document.getElementById('ref_date').value = e.date;
   document.getElementById('ground_truth').value = e.gt;
+}
+
+function findLocalExtrema(values, direction) {
+  const extrema = [];
+  for (let i = 1; i < values.length - 1; i++) {
+    if (values[i] == null || values[i - 1] == null || values[i + 1] == null) continue;
+    const isPeak = direction === 'max'
+      ? values[i] >= values[i - 1] && values[i] >= values[i + 1]
+      : values[i] <= values[i - 1] && values[i] <= values[i + 1];
+    if (isPeak) extrema.push(i);
+  }
+  return extrema;
+}
+
+function getLifecycleAroundReference(dates, smooth, refDateStr) {
+  const refTime = new Date(refDateStr + 'T00:00:00').getTime();
+  const refDate = new Date(refDateStr + 'T00:00:00');
+  const startDate = new Date(refDate);
+  startDate.setMonth(startDate.getMonth() - 18);
+  const endDate = new Date(refDate);
+  endDate.setMonth(endDate.getMonth() + 18);
+
+  const visibleIdx = [];
+  dates.forEach((d, idx) => {
+    const t = new Date(d + 'T00:00:00').getTime();
+    if (t >= startDate.getTime() && t <= endDate.getTime()) {
+      visibleIdx.push(idx);
+    }
+  });
+
+  if (!visibleIdx.length) {
+    return {
+      sowing: 0,
+      peak: Math.max(0, smooth.reduce((best, value, idx) => value > smooth[best] ? idx : best, 0)),
+      harvest: Math.max(0, smooth.length - 1),
+    };
+  }
+
+  const chooseClosest = (candidateIdxs, fallbackIdx) => {
+    if (!candidateIdxs.length) return fallbackIdx;
+    return candidateIdxs.reduce((best, idx) => {
+      const bestDistance = Math.abs(new Date(dates[best] + 'T00:00:00').getTime() - refTime);
+      const distance = Math.abs(new Date(dates[idx] + 'T00:00:00').getTime() - refTime);
+      return distance < bestDistance ? idx : best;
+    }, candidateIdxs[0]);
+  };
+
+  const windowStart = visibleIdx[0];
+  const windowEnd = visibleIdx[visibleIdx.length - 1];
+  const peakCandidates = findLocalExtrema(smooth, 'max').filter(idx => idx >= windowStart && idx <= windowEnd);
+  const peakIndex = peakCandidates.length
+    ? chooseClosest(peakCandidates, peakCandidates[0])
+    : smooth.slice(windowStart, windowEnd + 1).reduce((best, value, localIdx) => {
+        const idx = windowStart + localIdx;
+        return value > smooth[best] ? idx : best;
+      }, windowStart);
+
+  const leftMinima = findLocalExtrema(smooth, 'min').filter(idx => idx < peakIndex && idx >= windowStart);
+  const rightMinima = findLocalExtrema(smooth, 'min').filter(idx => idx > peakIndex && idx <= windowEnd);
+
+  return {
+    sowing: chooseClosest(leftMinima, Math.max(windowStart, peakIndex - 1)),
+    peak: peakIndex,
+    harvest: chooseClosest(rightMinima, Math.min(windowEnd, peakIndex + 1)),
+  };
+}
+
+function getAllLifecyclePoints(dates, smooth, chartIndices) {
+  const chartSet = new Set(chartIndices);
+  const rawMinima = findLocalExtrema(smooth, 'min')
+    .filter(idx => chartSet.has(idx));
+  const minima = [];
+  const pointKinds = new Map();
+
+  // Several adjacent observations can describe the same broad trough.
+  // Collapse that plateau before defining lifecycle boundaries.
+  rawMinima.forEach(idx => {
+    const previous = minima[minima.length - 1];
+    if (previous !== undefined && idx - previous <= 2) {
+      if (smooth[idx] < smooth[previous]) minima[minima.length - 1] = idx;
+    } else {
+      minima.push(idx);
+    }
+  });
+
+  const addPoint = (idx, kind) => {
+    if (!chartIndices.includes(idx)) return;
+    const existing = pointKinds.get(idx) || [];
+    if (!existing.includes(kind)) existing.push(kind);
+    pointKinds.set(idx, existing);
+  };
+
+  for (let i = 0; i < minima.length - 1; i++) {
+    const sowingIdx = minima[i];
+    const harvestIdx = minima[i + 1];
+    const interval = chartIndices.filter(idx => idx > sowingIdx && idx < harvestIdx);
+    if (!interval.length) continue;
+
+    const durationDays = (
+      new Date(dates[harvestIdx] + 'T00:00:00').getTime() -
+      new Date(dates[sowingIdx] + 'T00:00:00').getTime()
+    ) / 86400000;
+    if (durationDays < 60) continue;
+
+    const peakIdx = interval.reduce((best, idx) =>
+      smooth[idx] > smooth[best] ? idx : best, interval[0]);
+    const boundaryLevel = Math.max(smooth[sowingIdx], smooth[harvestIdx]);
+    if (smooth[peakIdx] - boundaryLevel < 0.12) continue;
+
+    addPoint(sowingIdx, 'sowing');
+    addPoint(peakIdx, 'peak');
+    addPoint(harvestIdx, 'harvest');
+  }
+
+  return pointKinds;
 }
 
 async function runPredict() {
@@ -482,9 +599,19 @@ const lon = parts[1];
     // Fill prediction card
     document.getElementById('cropName').textContent = data.predicted_crop;
     document.getElementById('confBadge').textContent = data.confidence_pct + '%';
-    document.getElementById('sowDate').textContent   = data.sowing_date;
-    document.getElementById('peakDate').textContent  = data.peak_date;
-    document.getElementById('harvDate').textContent  = data.harvest_date;
+
+    const isNoMatch = !data.sowing_date || data.predicted_crop === 'No confident crop match';
+    const lifecycleEl = document.querySelector('.lifecycle');
+    lifecycleEl.style.display = isNoMatch ? 'none' : 'flex';
+    if (isNoMatch) {
+      document.getElementById('sowDate').textContent = '—';
+      document.getElementById('peakDate').textContent = '—';
+      document.getElementById('harvDate').textContent = '—';
+    } else {
+      document.getElementById('sowDate').textContent = data.sowing_date;
+      document.getElementById('peakDate').textContent = data.peak_date;
+      document.getElementById('harvDate').textContent = data.harvest_date;
+    }
 
     // Correct badge
     const badge = document.getElementById('correctBadge');
@@ -515,20 +642,51 @@ const lon = parts[1];
     const values = data.ndvi_values;
     const smooth = data.smoothed;
 
-    // Mark lifecycle events on chart
-    const sowIdx  = dates.indexOf(data.sowing_date);
-    const peakIdx = dates.indexOf(data.peak_date);
-    const harvIdx = dates.indexOf(data.harvest_date);
+    const windowStart = new Date(date + 'T00:00:00');
+    windowStart.setMonth(windowStart.getMonth() - 18);
+    const windowEnd = new Date(date + 'T00:00:00');
+    windowEnd.setMonth(windowEnd.getMonth() + 18);
+    const visibleIndices = dates
+      .map((item, idx) => ({ idx, time: new Date(item + 'T00:00:00').getTime() }))
+      .filter(item => item.time >= windowStart.getTime() && item.time <= windowEnd.getTime())
+      .map(item => item.idx);
+    const chartIndices = visibleIndices.length ? visibleIndices : dates.map((_, idx) => idx);
+    const chartDates = chartIndices.map(idx => dates[idx]);
+    const chartValues = chartIndices.map(idx => values[idx]);
+    const chartSmooth = chartIndices.map(idx => smooth[idx]);
 
-    const pointColors = values.map((_, i) => {
-      if (i === sowIdx)  return '#42a5f5';
-      if (i === peakIdx) return '#66bb6a';
-      if (i === harvIdx) return '#ffa726';
+    const lifecycle = getLifecycleAroundReference(dates, smooth, date);
+    const sowIdx = Number(lifecycle.sowing);
+    const peakIdx = Number(lifecycle.peak);
+    const harvIdx = Number(lifecycle.harvest);
+    if (!isNoMatch) {
+      document.getElementById('sowDate').textContent  = dates[sowIdx];
+      document.getElementById('peakDate').textContent = dates[peakIdx];
+      document.getElementById('harvDate').textContent = dates[harvIdx];
+    }
+
+    const gtIdx = dates.reduce((best, d, idx) => {
+      const bestDistance = Math.abs(new Date(dates[best] + 'T00:00:00').getTime() - new Date(date + 'T00:00:00').getTime());
+      const distance = Math.abs(new Date(d + 'T00:00:00').getTime() - new Date(date + 'T00:00:00').getTime());
+      return distance < bestDistance ? idx : best;
+    }, 0);
+    const chartGtIdx = Math.max(0, chartIndices.indexOf(gtIdx));
+    const chartSowIdx = Math.max(0, chartIndices.indexOf(sowIdx));
+    const chartPeakIdx = Math.max(0, chartIndices.indexOf(peakIdx));
+    const chartHarvIdx = Math.max(0, chartIndices.indexOf(harvIdx));
+    const lifecyclePoints = getAllLifecyclePoints(dates, smooth, chartIndices);
+    document.getElementById('groundTruthDateLabel').textContent = `| Ground truth: ${date}`;
+
+    const pointColors = chartSmooth.map((_, i) => {
+      const kinds = lifecyclePoints.get(chartIndices[i]) || [];
+      if (kinds.includes('peak')) return '#66bb6a';
+      if (kinds.includes('sowing')) return '#42a5f5';
+      if (kinds.includes('harvest')) return '#ffa726';
       return 'transparent';
     });
 
-    const pointRadii = values.map((_, i) =>
-      [sowIdx, peakIdx, harvIdx].includes(i) ? 7 : 0
+    const pointRadii = chartSmooth.map((_, i) =>
+      lifecyclePoints.has(chartIndices[i]) ? 7 : 0
     );
 
     if (ndviChart) ndviChart.destroy();
@@ -536,28 +694,42 @@ const lon = parts[1];
     ndviChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: dates,
+        labels: chartDates,
         datasets: [
           {
+            label: 'Ground truth',
+            data: chartDates.map((_, i) => i === chartGtIdx ? 1 : null),
+            borderColor: '#fdd835',
+            borderDash: [6, 6],
+            borderWidth: 1.8,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            showLine: true,
+            fill: false,
+            order: 0,
+          },
+          {
             label: 'Raw NDVI',
-            data: values,
+            data: chartValues,
             borderColor: '#2d4a2d',
             backgroundColor: 'transparent',
             borderWidth: 1.5,
-            pointRadius: pointRadii,
-            pointBackgroundColor: pointColors,
-            pointBorderColor: pointColors,
+            pointRadius: 0,
             tension: 0.3,
+            order: 1,
           },
           {
             label: 'Smoothed',
-            data: smooth,
+            data: chartSmooth,
             borderColor: '#4caf50',
             backgroundColor: 'rgba(76,175,80,0.08)',
             borderWidth: 2.5,
-            pointRadius: 0,
+            pointRadius: pointRadii,
+            pointBackgroundColor: pointColors,
+            pointBorderColor: pointColors,
             tension: 0.4,
             fill: true,
+            order: 2,
           }
         ]
       },
@@ -571,10 +743,34 @@ const lon = parts[1];
             callbacks: {
               afterLabel: (ctx) => {
                 const i = ctx.dataIndex;
-                if (i === sowIdx)  return '🌱 Sowing';
-                if (i === peakIdx) return '📈 Peak';
-                if (i === harvIdx) return '🌾 Harvest';
+                const kinds = lifecyclePoints.get(chartIndices[i]) || [];
+                if (kinds.includes('peak')) return `📈 Peak: ${chartDates[i]}`;
+                if (kinds.includes('sowing')) return `🌱 Sowing: ${chartDates[i]}`;
+                if (kinds.includes('harvest')) return `🌾 Harvest: ${chartDates[i]}`;
+                if (i === chartGtIdx)   return `📍 Ground truth: ${date}`;
                 return '';
+              }
+            }
+          },
+          annotation: {
+            annotations: {
+              groundTruthLine: {
+                type: 'line',
+                scaleID: 'x',
+                value: chartDates[chartGtIdx],
+                borderColor: '#fdd835',
+                borderWidth: 3,
+                borderDash: [8, 6],
+                label: {
+                  display: true,
+                  content: `Ground truth: ${date}`,
+                  position: 'start',
+                  color: '#fdd835',
+                  backgroundColor: '#26351f',
+                  borderColor: '#fdd835',
+                  borderWidth: 1,
+                  padding: 6
+                }
               }
             }
           }

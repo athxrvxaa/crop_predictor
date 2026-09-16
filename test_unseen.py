@@ -178,9 +178,10 @@ def _build_feature_table(raw: pd.DataFrame) -> pd.DataFrame:
                 mask = (dates >= sow_date) & (dates <= harv_date)
                 seg_days = ((dates[mask] - np.datetime64(sow_date)) / np.timedelta64(1, "D")).astype(float)
                 seg_ndvi = ndvi[mask]
+                seg_smooth = smoothed_full[mask]
 
                 if len(seg_days) > 1:
-                    auc = float(_trapz(seg_ndvi, seg_days))
+                    auc = float(_trapz(seg_smooth, seg_days))
                 else:
                     auc = np.nan
 

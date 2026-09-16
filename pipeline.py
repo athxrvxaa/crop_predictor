@@ -139,6 +139,23 @@ def validate_crop(crop, sow_date, peak_date, harvest_date, ndvi_curve):
     return True
 
 
+def _has_large_gap_in_span(dates, start_idx, end_idx, max_gap_days=75):
+    if start_idx >= end_idx:
+        return False
+    span_dates = pd.to_datetime(np.asarray(dates[start_idx:end_idx + 1]))
+    gaps = pd.Series(span_dates).diff().dt.days.dropna()
+    return bool((gaps > max_gap_days).any())
+
+
+def _local_min_indices(values):
+    values = np.asarray(values, dtype=float)
+    if len(values) < 3:
+        return np.array([], dtype=int)
+    mins = np.arange(1, len(values) - 1)
+    mins = mins[(values[1:-1] <= values[:-2]) & (values[1:-1] <= values[2:])]
+    return mins.astype(int)
+
+
 def find_valid_cycle_for_crop(crop, dates, ndvi, cfg, ref_date=None, candidate_cycles=None):
     """Select a lifecycle candidate that satisfies the crop's agronomic rules."""
     dates = np.asarray(dates)
@@ -157,24 +174,12 @@ def find_valid_cycle_for_crop(crop, dates, ndvi, cfg, ref_date=None, candidate_c
         harv_idx = int(cycle.get('harvest', len(ndvi) - 1))
         if sow_idx > peak_idx or peak_idx > harv_idx:
             continue
+        if cycle.get('weak_boundary') and _has_large_gap_in_span(dates, sow_idx, harv_idx):
+            continue
         if validate_crop(crop, dates[sow_idx], dates[peak_idx], dates[harv_idx], ndvi[sow_idx:harv_idx + 1]):
             valid_cycles.append({'sowing': sow_idx, 'peak': peak_idx, 'harvest': harv_idx})
 
     if not valid_cycles:
-        search_span = max(1, int(cfg.get('search_months', 6)) * 2)
-        for cycle in candidate_cycles:
-            peak_idx = int(cycle.get('peak', 0))
-            peak_date = pd.Timestamp(dates[peak_idx])
-            for sow_idx in range(max(0, peak_idx - search_span), peak_idx + 1):
-                sow_date = pd.Timestamp(dates[sow_idx])
-                if (peak_date - sow_date).days < 0:
-                    continue
-                for harv_idx in range(peak_idx, min(len(ndvi) - 1, peak_idx + search_span) + 1):
-                    harv_date = pd.Timestamp(dates[harv_idx])
-                    if harv_date < peak_date:
-                        continue
-                    if validate_crop(crop, dates[sow_idx], dates[peak_idx], dates[harv_idx], ndvi[sow_idx:harv_idx + 1]):
-                        return {'sowing': sow_idx, 'peak': peak_idx, 'harvest': harv_idx}
         return None
 
     if ref_date is not None:
@@ -217,57 +222,56 @@ def detect_cycles(dates, ndvi, cfg):
 
     search_window = pd.DateOffset(months=cfg['search_months'])
     cycles = []
+    local_minima = _local_min_indices(s)
 
     for p in peaks:
         peak_date = pd.Timestamp(dates[p])
+        weak_boundary = False
 
         before_mask = (dates >= peak_date - search_window) & (dates <= peak_date)
         before_idx = np.where(before_mask)[0]
         if len(before_idx) > 0:
             left_candidates = before_idx[before_idx < p]
-            if len(left_candidates) >= 2:
-                left_s = s[left_candidates]
-                left_slopes = np.diff(left_s)
-                slope_eps = max(0.005, 0.02 * np.nanstd(left_slopes) if len(left_slopes) > 0 else 0.005)
-
-                positive_runs = []
-                run_start = None
-                for i, slope in enumerate(left_slopes):
-                    if slope > slope_eps:
-                        if run_start is None:
-                            run_start = i
-                    else:
-                        if run_start is not None:
-                            positive_runs.append((run_start, i))
-                            run_start = None
-                if run_start is not None:
-                    positive_runs.append((run_start, len(left_slopes)))
-
-                if positive_runs:
-                    best_run_start, best_run_end = max(positive_runs, key=lambda x: x[1] - x[0])
-                    sowing = int(left_candidates[best_run_start])
+            if len(left_candidates) > 0:
+                left_minima = left_candidates[np.isin(left_candidates, local_minima)]
+                if len(left_minima) > 0:
+                    sowing = int(left_minima[-1])
                 else:
-                    sowing = int(left_candidates[np.argmin(left_s)])
+                    sowing = int(left_candidates[np.argmin(s[left_candidates])])
+                    weak_boundary = True
             else:
-                sowing = int(left_candidates[0]) if len(left_candidates) > 0 else 0
+                sowing = 0
         else:
             sowing = 0
 
         after_mask = (dates >= peak_date) & (dates <= peak_date + search_window)
         after_idx = np.where(after_mask)[0]
-        harvest = int(after_idx[np.argmin(s[after_idx])]) if len(after_idx) > 0 else len(s) - 1
+        if len(after_idx) > 0:
+            right_candidates = after_idx[after_idx > p]
+            if len(right_candidates) > 0:
+                right_minima = right_candidates[np.isin(right_candidates, local_minima)]
+                if len(right_minima) > 0:
+                    harvest = int(right_minima[0])
+                else:
+                    harvest = int(right_candidates[np.argmin(s[right_candidates])])
+                    weak_boundary = True
+            else:
+                harvest = int(after_idx[np.argmin(s[after_idx])]) if len(after_idx) > 0 else len(s) - 1
+        else:
+            harvest = len(s) - 1
 
-        cycles.append({'sowing': sowing, 'peak': p, 'harvest': harvest})
+        cycles.append({'sowing': sowing, 'peak': p, 'harvest': harvest, 'weak_boundary': weak_boundary})
 
     return cycles, s
 
 
-def build_features_from_cycle(dates, ndvi, c):
+def build_features_from_cycle(dates, ndvi, smooth, c):
     sow_i, peak_i, harv_i = c['sowing'], c['peak'], c['harvest']
     sow_date, peak_date, harv_date = dates[sow_i], dates[peak_i], dates[harv_i]
 
-    seg = ndvi[sow_i:harv_i + 1]
-    if len(seg) < 3:
+    seg_raw = ndvi[sow_i:harv_i + 1]
+    seg_smooth = smooth[sow_i:harv_i + 1]
+    if len(seg_raw) < 3:
         return None
 
     seg_days  = (dates[sow_i:harv_i + 1] - dates[sow_i]).astype('timedelta64[D]').astype(float)
@@ -277,18 +281,18 @@ def build_features_from_cycle(dates, ndvi, c):
 
     feats = {
         'Duration_Days': duration,
-        'Peak_NDVI':     float(ndvi[peak_i]),
+        'Peak_NDVI':     float(smooth[peak_i]),
         'Peak_Month':    pd.Timestamp(peak_date).month,
-        'Sowing_NDVI':   float(ndvi[sow_i]),
+        'Sowing_NDVI':   float(smooth[sow_i]),
         'Sowing_Month':  pd.Timestamp(sow_date).month,
-        'Harvest_NDVI':  float(ndvi[harv_i]),
+        'Harvest_NDVI':  float(smooth[harv_i]),
         'Harvest_Month': pd.Timestamp(harv_date).month,
-        'AUC':           float(_trapz(seg, x=seg_days)) if len(seg) > 1 else 0.0,
-        'Mean_NDVI':     float(np.mean(seg)),
-        'Std_NDVI':      float(np.std(seg)),
-        'NDVI_range':    float(np.ptp(seg)),
-        'Rise_rate':     round((ndvi[peak_i] - ndvi[sow_i])   / rise_days, 5),
-        'Fall_rate':     round((ndvi[peak_i] - ndvi[harv_i]) / fall_days, 5),
+        'AUC':           float(_trapz(seg_smooth, x=seg_days)) if len(seg_smooth) > 1 else 0.0,
+        'Mean_NDVI':     float(np.mean(seg_raw)),
+        'Std_NDVI':      float(np.std(seg_raw)),
+        'NDVI_range':    float(np.ptp(seg_raw)),
+        'Rise_rate':     round((smooth[peak_i] - smooth[sow_i]) / rise_days, 5),
+        'Fall_rate':     round((smooth[peak_i] - smooth[harv_i]) / fall_days, 5),
     }
     return feats, sow_date, peak_date, harv_date
 

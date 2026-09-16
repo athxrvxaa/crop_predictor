@@ -291,11 +291,12 @@ for (crop, farm), result in results_by_farm.items():
         ).astype(float)
 
         seg_ndvi = ndvi[mask]
+        seg_smooth = smoothed[mask]
 
         if len(seg_days) > 1:
             auc = float(
                 _trapz(
-                    seg_ndvi,
+                    seg_smooth,
                     seg_days,
                 )
             )
