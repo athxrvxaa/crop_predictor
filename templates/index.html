@@ -541,53 +541,46 @@ function getLifecycleAroundReference(dates, smooth, refDateStr) {
   };
 }
 
-function getAllLifecyclePoints(dates, smooth, chartIndices) {
-  const chartSet = new Set(chartIndices);
-  const rawMinima = findLocalExtrema(smooth, 'min')
-    .filter(idx => chartSet.has(idx));
-  const minima = [];
-  const pointKinds = new Map();
+function getLifecyclePoints(dates, smooth, chartIndices, refDateStr) {
+  const threeMonthsBefore = new Date(refDateStr + 'T00:00:00');
+  threeMonthsBefore.setMonth(threeMonthsBefore.getMonth() - 3);
+  const threeMonthsAfter = new Date(refDateStr + 'T00:00:00');
+  threeMonthsAfter.setMonth(threeMonthsAfter.getMonth() + 3);
 
-  // Several adjacent observations can describe the same broad trough.
-  // Collapse that plateau before defining lifecycle boundaries.
-  rawMinima.forEach(idx => {
-    const previous = minima[minima.length - 1];
-    if (previous !== undefined && idx - previous <= 2) {
-      if (smooth[idx] < smooth[previous]) minima[minima.length - 1] = idx;
-    } else {
-      minima.push(idx);
-    }
+  const peakWindow = chartIndices.filter(idx => {
+    const time = new Date(dates[idx] + 'T00:00:00').getTime();
+    return time >= threeMonthsBefore.getTime() && time <= threeMonthsAfter.getTime();
+  });
+  if (!peakWindow.length) return new Map();
+
+  const peakCandidates = findLocalExtrema(smooth, 'max')
+    .filter(idx => peakWindow.includes(idx));
+  const peakPool = peakCandidates.length ? peakCandidates : peakWindow;
+  const peakIdx = peakPool.reduce((best, idx) => smooth[idx] > smooth[best] ? idx : best, peakPool[0]);
+
+  const eightMonthsBefore = new Date(dates[peakIdx] + 'T00:00:00');
+  eightMonthsBefore.setMonth(eightMonthsBefore.getMonth() - 8);
+  const eightMonthsAfter = new Date(dates[peakIdx] + 'T00:00:00');
+  eightMonthsAfter.setMonth(eightMonthsAfter.getMonth() + 8);
+  const leftWindow = chartIndices.filter(idx => {
+    const time = new Date(dates[idx] + 'T00:00:00').getTime();
+    return idx < peakIdx && time >= eightMonthsBefore.getTime();
+  });
+  const rightWindow = chartIndices.filter(idx => {
+    const time = new Date(dates[idx] + 'T00:00:00').getTime();
+    return idx > peakIdx && time <= eightMonthsAfter.getTime();
   });
 
-  const addPoint = (idx, kind) => {
-    if (!chartIndices.includes(idx)) return;
-    const existing = pointKinds.get(idx) || [];
-    if (!existing.includes(kind)) existing.push(kind);
-    pointKinds.set(idx, existing);
-  };
-
-  for (let i = 0; i < minima.length - 1; i++) {
-    const sowingIdx = minima[i];
-    const harvestIdx = minima[i + 1];
-    const interval = chartIndices.filter(idx => idx > sowingIdx && idx < harvestIdx);
-    if (!interval.length) continue;
-
-    const durationDays = (
-      new Date(dates[harvestIdx] + 'T00:00:00').getTime() -
-      new Date(dates[sowingIdx] + 'T00:00:00').getTime()
-    ) / 86400000;
-    if (durationDays < 60) continue;
-
-    const peakIdx = interval.reduce((best, idx) =>
-      smooth[idx] > smooth[best] ? idx : best, interval[0]);
-    const boundaryLevel = Math.max(smooth[sowingIdx], smooth[harvestIdx]);
-    if (smooth[peakIdx] - boundaryLevel < 0.12) continue;
-
-    addPoint(sowingIdx, 'sowing');
-    addPoint(peakIdx, 'peak');
-    addPoint(harvestIdx, 'harvest');
+  const pointKinds = new Map();
+  if (leftWindow.length) {
+    const sowingIdx = leftWindow.reduce((best, idx) => smooth[idx] < smooth[best] ? idx : best, leftWindow[0]);
+    pointKinds.set(sowingIdx, ['sowing']);
   }
-
+  pointKinds.set(peakIdx, ['peak']);
+  if (rightWindow.length) {
+    const harvestIdx = rightWindow.reduce((best, idx) => smooth[idx] < smooth[best] ? idx : best, rightWindow[0]);
+    pointKinds.set(harvestIdx, ['harvest']);
+  }
   return pointKinds;
 }
 
@@ -711,7 +704,7 @@ const lon = parts[1];
     const chartSowIdx = Math.max(0, chartIndices.indexOf(sowIdx));
     const chartPeakIdx = Math.max(0, chartIndices.indexOf(peakIdx));
     const chartHarvIdx = Math.max(0, chartIndices.indexOf(harvIdx));
-    const lifecyclePoints = getAllLifecyclePoints(dates, smooth, chartIndices);
+    const lifecyclePoints = getLifecyclePoints(dates, smooth, chartIndices, date);
     document.getElementById('groundTruthDateLabel').textContent = `| Ground truth: ${date}`;
 
     const pointColors = chartSmooth.map((_, i) => {
