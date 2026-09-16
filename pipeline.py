@@ -49,8 +49,8 @@ FEATURE_COLS = [
 RULES = {
     'Onion':     {'sow_months': [5,6,7,8,9,10,11,12], 'harv_months': [1,2,3,4,5,10,11,12], 'min_dur': 85,  'max_dur': 180, 'min_drop': 0.20, 'min_rise': 0.15},
     'Tomato':    {'sow_months': list(range(1,13)),        'harv_months': list(range(1,13)),     'min_dur': 55,  'max_dur': 130, 'min_drop': 0.20, 'min_rise': 0.15},
-    'Paddy':     {'sow_months': [5,6,7,8],               'harv_months': [9,10,11,12,1],        'min_dur': 90,  'max_dur': 180, 'min_drop': 0.20, 'min_rise': 0.15},
-    'Sugarcane': {'sow_months': [12,1,2,3,4,5,6],               'harv_months': [10,11,12,1,2,3,4,5],          'min_dur': 180, 'max_dur': 365, 'min_drop': 0.12, 'min_rise': 0.12},
+    'Paddy':     {'sow_months': [5,6,7,8,9,10],               'harv_months': [9,10,11,12,1],        'min_dur': 90,  'max_dur': 180, 'min_drop': 0.20, 'min_rise': 0.15},
+    'Sugarcane': {'sow_months': [12,1,2,3,4,5,6],               'harv_months': [10,11,12,1,2,3,4,5],          'min_dur': 180, 'max_dur': 420, 'min_drop': 0.12, 'min_rise': 0.12},
     'Cotton':    {'sow_months': [5,6,7,8,9,10,11,12],             'harv_months': [11,12,1,2,3,4,5],           'min_dur': 65,  'max_dur': 230, 'min_drop': 0.10, 'min_rise': 0.10},
     'Gram':      {'sow_months': [9,10,11,12,1],          'harv_months': [1,2,3,4,5],           'min_dur': 70,  'max_dur': 180, 'min_drop': 0.10, 'min_rise': 0.10},
     'Lentil':    {'sow_months': [9,10,11,12,1],          'harv_months': [1,2,3,4,5],           'min_dur': 70,  'max_dur': 180, 'min_drop': 0.10, 'min_rise': 0.10},

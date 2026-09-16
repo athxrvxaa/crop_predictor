@@ -210,6 +210,17 @@
   .correct-badge.yes { background: #1b3a1b; color: #66bb6a; }
   .correct-badge.no  { background: #3a1b1b; color: #e57373; }
 
+  .duration-badge {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 3px 10px;
+    border: 1px solid #8d6e13;
+    border-radius: 12px;
+    color: #fdd835;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   /* lifecycle timeline */
   .lifecycle {
     display: flex;
@@ -372,6 +383,7 @@
         <div>
           <div class="crop-name" id="cropName">—</div>
           <div id="correctBadge"></div>
+          <div id="durationBadge"></div>
         </div>
         <div class="confidence-badge" id="confBadge">—%</div>
       </div>
@@ -706,6 +718,25 @@ const lon = parts[1];
     const chartHarvIdx = Math.max(0, chartIndices.indexOf(harvIdx));
     const lifecyclePoints = getLifecyclePoints(dates, smooth, chartIndices, date);
     document.getElementById('groundTruthDateLabel').textContent = `| Ground truth: ${date}`;
+
+    const durationBadge = document.getElementById('durationBadge');
+    durationBadge.innerHTML = '';
+    const frontendSowingIdx = [...lifecyclePoints.entries()]
+      .find(([, kinds]) => kinds.includes('sowing'))?.[0];
+    const frontendHarvestIdx = [...lifecyclePoints.entries()]
+      .find(([, kinds]) => kinds.includes('harvest'))?.[0];
+    if (frontendSowingIdx !== undefined && frontendHarvestIdx !== undefined) {
+      const lifecycleDays = Math.round(
+        (new Date(dates[frontendHarvestIdx] + 'T00:00:00').getTime() -
+         new Date(dates[frontendSowingIdx] + 'T00:00:00').getTime()) / 86400000
+      );
+      if (lifecycleDays >= 180 && lifecycleDays <= 420) {
+        durationBadge.innerHTML = `
+          <span class="duration-badge">
+            Sugarcane-like lifecycle (${lifecycleDays} days)
+          </span>`;
+      }
+    }
 
     const pointColors = chartSmooth.map((_, i) => {
       const kinds = lifecyclePoints.get(chartIndices[i]) || [];
