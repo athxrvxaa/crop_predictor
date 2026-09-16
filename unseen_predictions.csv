@@ -1,9 +1,9 @@
 Farm_ID,Ground_Truth,Predicted,Correct,Confidence
-C013,Cotton,Onion,False,0.518581
-C015,Cotton,Onion,False,0.514077
-C017,Cotton,Cotton,True,0.460263
-P012,Paddy,Paddy,True,0.76793
-P013,Paddy,Paddy,True,0.791888
-P015,Paddy,Paddy,True,0.638579
-P016,Paddy,Paddy,True,0.694051
-P026,Paddy,Paddy,True,0.555501
+C013,Cotton,Onion,False,0.430838
+C015,Cotton,Cotton,True,0.44167
+C017,Cotton,Cotton,True,0.527953
+P012,Paddy,Paddy,True,0.709388
+P013,Paddy,Paddy,True,0.772703
+P015,Paddy,Paddy,True,0.657531
+P016,Paddy,Paddy,True,0.676145
+P026,Paddy,Paddy,True,0.595426

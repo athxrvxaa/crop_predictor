@@ -30,7 +30,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
@@ -553,7 +553,7 @@ crops_arr = farm_crop["Crop"].values
 sss1 = StratifiedShuffleSplit(
     n_splits=1,
     test_size=0.50,
-    # random_state=42,
+    random_state=42,
 )
 
 train_idx, test_idx = next(
@@ -617,12 +617,12 @@ rf = RandomForestClassifier(
 )
 
 param_grid = {
-    "n_estimators": [120, 150, 200],
-    "max_depth": [2, 3, 8],
-    "min_samples_split": [3, 5, 10],
-    "min_samples_leaf": [1, 2, 4],
+    "n_estimators": [100, 200],
+    "max_depth": [2, 3, 4],
+    "min_samples_split": [2, 4, 8],
+    "min_samples_leaf": [2, 4, 6],
     "max_features": ["sqrt"],
-    "ccp_alpha": [0.01, 0.02],
+    "ccp_alpha": [0.0, 0.01, 0.02],
 }
 
 cv = StratifiedGroupKFold(
@@ -658,6 +658,19 @@ if len(y_test) == 0:
 else:
     y_pred = clf.predict(X_test)
 
+    train_pred = clf.predict(X_train)
+    print(
+        "Train weighted precision/recall/F1: "
+        f"{precision_score(y_train, train_pred, average='weighted', zero_division=0):.4f} / "
+        f"{recall_score(y_train, train_pred, average='weighted', zero_division=0):.4f} / "
+        f"{f1_score(y_train, train_pred, average='weighted', zero_division=0):.4f}"
+    )
+    print(
+        "Held-out weighted precision/recall/F1: "
+        f"{precision_score(y_test, y_pred, average='weighted', zero_division=0):.4f} / "
+        f"{recall_score(y_test, y_pred, average='weighted', zero_division=0):.4f} / "
+        f"{f1_score(y_test, y_pred, average='weighted', zero_division=0):.4f}"
+    )
     print(classification_report(
         y_test,
         y_pred,
