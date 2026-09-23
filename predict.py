@@ -24,6 +24,41 @@ from gee_fetch import get_ndvi_timeseries
 _model_bundle = None
 
 
+def _reference_cycle(dates, smooth, ref_date):
+    dates = np.asarray(dates)
+    smooth = np.asarray(smooth, dtype=float)
+    ref_date = pd.Timestamp(ref_date)
+
+    peak_start = ref_date - pd.DateOffset(months=3)
+    peak_end = ref_date + pd.DateOffset(months=3)
+    peak_window = [idx for idx, date in enumerate(dates)
+                   if peak_start <= pd.Timestamp(date) <= peak_end]
+    if not peak_window:
+        return None
+
+    peak_candidates = [idx for idx in range(1, len(smooth) - 1)
+                       if idx in peak_window
+                       and smooth[idx] >= smooth[idx - 1]
+                       and smooth[idx] >= smooth[idx + 1]]
+    peak_pool = peak_candidates or peak_window
+    peak_idx = max(peak_pool, key=lambda idx: smooth[idx])
+
+    left_start = pd.Timestamp(dates[peak_idx]) - pd.DateOffset(months=8)
+    right_end = pd.Timestamp(dates[peak_idx]) + pd.DateOffset(months=8)
+    left_window = [idx for idx, date in enumerate(dates)
+                   if idx < peak_idx and left_start <= pd.Timestamp(date)]
+    right_window = [idx for idx, date in enumerate(dates)
+                    if idx > peak_idx and pd.Timestamp(date) <= right_end]
+    if not left_window or not right_window:
+        return None
+
+    return {
+        'sowing': min(left_window, key=lambda idx: smooth[idx]),
+        'peak': peak_idx,
+        'harvest': min(right_window, key=lambda idx: smooth[idx]),
+    }
+
+
 def load_model(path: str = 'model/crop_classifier.pkl'):
     global _model_bundle
     if _model_bundle is None:
@@ -63,6 +98,20 @@ def predict_crop(lat: float, lon: float, ref_date: str,
             ref_date=ref_date,
             candidate_cycles=candidate_cycles,
         )
+        if cycle is None:
+            reference_cycle = _reference_cycle(dates, crop_smoothed, ref_date)
+            if reference_cycle is not None:
+                sow_idx = reference_cycle['sowing']
+                peak_idx = reference_cycle['peak']
+                harvest_idx = reference_cycle['harvest']
+                if validate_crop(
+                    crop,
+                    dates[sow_idx],
+                    dates[peak_idx],
+                    dates[harvest_idx],
+                    ndvi[sow_idx:harvest_idx + 1],
+                ):
+                    cycle = reference_cycle
         if cycle is None:
             continue
 

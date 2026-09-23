@@ -730,7 +730,7 @@ const lon = parts[1];
         (new Date(dates[frontendHarvestIdx] + 'T00:00:00').getTime() -
          new Date(dates[frontendSowingIdx] + 'T00:00:00').getTime()) / 86400000
       );
-      if (lifecycleDays >= 180 && lifecycleDays <= 420) {
+      if (lifecycleDays >= 300 && lifecycleDays <= 420) {
         durationBadge.innerHTML = `
           <span class="duration-badge">
             Sugarcane-like lifecycle (${lifecycleDays} days)
